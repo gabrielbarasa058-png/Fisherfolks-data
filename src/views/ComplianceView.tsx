@@ -29,6 +29,31 @@ const ALERT_LABELS: Record<string, string> = {
   zone_entry: 'Zone Entry',
 };
 
+function extractPolygonRings(geojson: unknown): number[][][] | null {
+  if (!geojson || typeof geojson !== 'object') return null;
+  const g = geojson as { type: string; coordinates: number[][][] | number[][][][] };
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) return g.coordinates as number[][][];
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) return (g.coordinates as number[][][][])[0];
+  return null;
+}
+
+function addZoneBoundary(map: L.Map, zone: MarineZone, opts: { fillOpacity?: number; weight?: number; dashArray?: string } = {}) {
+  const rings = extractPolygonRings(zone.boundary_geojson);
+  if (!rings || rings.length === 0) return null;
+  const latlngs = rings[0].map((c: number[]) => [c[1], c[0]] as [number, number]);
+  const color = getZoneColor(zone.zone_type);
+  const polygon = L.polygon(latlngs, {
+    fillColor: color,
+    color,
+    weight: opts.weight ?? 2,
+    opacity: 0.8,
+    fillOpacity: opts.fillOpacity ?? 0.15,
+    dashArray: opts.dashArray,
+  }).addTo(map);
+  polygon.bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
+  return polygon;
+}
+
 function StatusIcon({ status }: { status: string }) {
   if (status === 'resolved') return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
   if (status === 'open') return <AlertTriangle className="w-4 h-4 text-blue-500" />;
@@ -456,13 +481,15 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
     L.control.layers({ Satellite: satellite, 'Ocean (GEBCO/NOAA)': ocean, Street: street }, undefined, { position: 'topright', collapsed: false }).addTo(map);
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
-    // Zone markers
+    // Zone boundaries
     zones.forEach(zone => {
-      if (!zone.coordinates) return;
-      L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
-        radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
-        fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.6, fillOpacity: 0.2,
-      }).addTo(map).bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
+      const polygon = addZoneBoundary(map, zone, { fillOpacity: 0.1, weight: 2, dashArray: '4 4' });
+      if (!polygon && zone.coordinates) {
+        L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
+          radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
+          fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.6, fillOpacity: 0.2,
+        }).addTo(map).bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
+      }
     });
 
     // Vessel tracks
@@ -557,39 +584,56 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
       if (a.zone_id) zoneAlertCounts[a.zone_id] = (zoneAlertCounts[a.zone_id] || 0) + 1;
     });
 
-    // Draw heat circles for each zone
+    // Draw zone boundaries with heat overlay
     zones.forEach(zone => {
-      if (!zone.coordinates) return;
       const incCount = zoneIncidentCounts[zone.id] || 0;
       const alertCount = zoneAlertCounts[zone.id] || 0;
       const total = incCount + alertCount;
-      if (total === 0) return;
 
-      const intensity = Math.min(1, total / 5);
-      const color = total >= 4 ? '#dc2626' : total >= 2 ? '#f59e0b' : '#fbbf24';
-      const radius = 20 + total * 10;
+      const rings = extractPolygonRings(zone.boundary_geojson);
+      if (rings && rings.length > 0) {
+        const latlngs = rings[0].map((c: number[]) => [c[1], c[0]] as [number, number]);
+        const heatColor = total >= 4 ? '#dc2626' : total >= 2 ? '#f59e0b' : total === 1 ? '#fbbf24' : '#64748b';
+        const intensity = total > 0 ? Math.min(1, total / 5) : 0.1;
 
-      L.circle([zone.coordinates.lat, zone.coordinates.lng], {
-        radius,
-        fillColor: color, color: color, weight: 1, opacity: 0.4, fillOpacity: intensity * 0.5,
-      }).addTo(map).bindPopup(`
-        <div style="min-width:180px;font-family:Inter,sans-serif">
-          <div style="font-weight:600;font-size:14px;color:#0f172a;margin-bottom:4px">${zone.name}</div>
-          <div style="font-size:12px;color:#475569">
-            <div>Compliance Incidents: <b>${incCount}</b></div>
-            <div>Geofence Alerts: <b>${alertCount}</b></div>
-            <div>Total Events: <b>${total}</b></div>
+        L.polygon(latlngs, {
+          fillColor: heatColor,
+          color: heatColor,
+          weight: total > 0 ? 2 : 1,
+          opacity: 0.7,
+          fillOpacity: total > 0 ? intensity * 0.6 : 0.08,
+        }).addTo(map).bindPopup(`
+          <div style="min-width:180px;font-family:Inter,sans-serif">
+            <div style="font-weight:600;font-size:14px;color:#0f172a;margin-bottom:4px">${zone.name}</div>
+            <div style="font-size:12px;color:#475569">
+              <div>Compliance Incidents: <b>${incCount}</b></div>
+              <div>Geofence Alerts: <b>${alertCount}</b></div>
+              <div>Total Events: <b>${total}</b></div>
+            </div>
           </div>
-        </div>
-      `);
-    });
-
-    // Also show zone center markers
-    zones.forEach(zone => {
-      if (!zone.coordinates) return;
-      L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
-        radius: 4, fillColor: '#1e293b', color: '#fff', weight: 1, opacity: 1, fillOpacity: 1,
-      }).addTo(map).bindTooltip(zone.name, { permanent: false });
+        `);
+      } else if (zone.coordinates) {
+        if (total > 0) {
+          const intensity = Math.min(1, total / 5);
+          const color = total >= 4 ? '#dc2626' : total >= 2 ? '#f59e0b' : '#fbbf24';
+          const radius = 20 + total * 10;
+          L.circle([zone.coordinates.lat, zone.coordinates.lng], {
+            radius, fillColor: color, color, weight: 1, opacity: 0.4, fillOpacity: intensity * 0.5,
+          }).addTo(map).bindPopup(`
+            <div style="min-width:180px;font-family:Inter,sans-serif">
+              <div style="font-weight:600;font-size:14px;color:#0f172a;margin-bottom:4px">${zone.name}</div>
+              <div style="font-size:12px;color:#475569">
+                <div>Compliance Incidents: <b>${incCount}</b></div>
+                <div>Geofence Alerts: <b>${alertCount}</b></div>
+                <div>Total Events: <b>${total}</b></div>
+              </div>
+            </div>
+          `);
+        }
+        L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
+          radius: 4, fillColor: '#1e293b', color: '#fff', weight: 1, opacity: 1, fillOpacity: 1,
+        }).addTo(map).bindTooltip(zone.name, { permanent: false });
+      }
     });
 
     return () => { map.remove(); mapRef.current = null; };
@@ -605,7 +649,7 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
       </div>
       <div className="bg-slate-50 rounded-lg p-3 flex items-start gap-2 text-xs text-slate-600">
         <Crosshair className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-        <span>Heat map shows compliance hotspots by combining violation incidents and geofence alerts per zone. Larger, darker circles indicate areas requiring increased enforcement attention.</span>
+        <span>Heat map shows compliance hotspots using official zone boundaries. Zone fill color intensity reflects the number of violations and geofence alerts per zone — red zones need the most enforcement attention.</span>
       </div>
     </div>
   );

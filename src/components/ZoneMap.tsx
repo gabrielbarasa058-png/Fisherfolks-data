@@ -24,10 +24,27 @@ interface ZoneMapProps {
   onZoneClick?: (zone: MarineZone) => void;
 }
 
+interface GeoJSONGeometry {
+  type: string;
+  coordinates: unknown;
+}
+
+function extractPolygonRings(geojson: unknown): number[][][] | null {
+  if (!geojson || typeof geojson !== 'object') return null;
+  const g = geojson as GeoJSONGeometry;
+  if (g.type === 'Polygon' && Array.isArray(g.coordinates)) {
+    return g.coordinates as number[][][];
+  }
+  if (g.type === 'MultiPolygon' && Array.isArray(g.coordinates)) {
+    return (g.coordinates as unknown as number[][][][])[0];
+  }
+  return null;
+}
+
 export default function ZoneMap({ zones, onZoneClick }: ZoneMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const markersRef = useRef<L.CircleMarker[]>([]);
+  const layersRef = useRef<L.Layer[]>([]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -39,40 +56,33 @@ export default function ZoneMap({ zones, onZoneClick }: ZoneMapProps) {
       attributionControl: true,
     });
 
-    // Layer 1: Street (OpenStreetMap)
     const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
     });
 
-    // Layer 2: Ocean (Esri Ocean Basemap)
     const oceanLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri — Sources: GEBCO, NOAA, CHS, OSU, UNH, CSUMB, National Geographic, DeLorme, NAVTEQ',
       maxZoom: 13,
     });
 
-    // Layer 3: Satellite (Esri World Imagery)
     const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
       maxZoom: 19,
     });
 
-    // Default layer
     satelliteLayer.addTo(map);
 
-    // Layer control
     L.control.layers({
       'Satellite': satelliteLayer,
       'Ocean (GEBCO/NOAA)': oceanLayer,
       'Street': streetLayer,
     }, undefined, { position: 'topright', collapsed: false }).addTo(map);
 
-    // Scale bar
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
     mapRef.current = map;
 
-    // Fix for Leaflet default icon paths
     delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -86,14 +96,14 @@ export default function ZoneMap({ zones, onZoneClick }: ZoneMapProps) {
     };
   }, []);
 
-  // Update markers when zones change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Clear existing markers
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
+    layersRef.current.forEach((l) => l.remove());
+    layersRef.current = [];
+
+    const fitBounds: L.LatLngBounds[] = [];
 
     zones.forEach((zone) => {
       if (!zone.coordinates) return;
@@ -101,52 +111,100 @@ export default function ZoneMap({ zones, onZoneClick }: ZoneMapProps) {
       if (typeof lat !== 'number' || typeof lng !== 'number') return;
 
       const color = getZoneColor(zone.zone_type);
-      const radius = Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3));
+      const rings = extractPolygonRings(zone.boundary_geojson);
 
-      const marker = L.circleMarker([lat, lng], {
-        radius,
-        fillColor: color,
-        color: '#fff',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.8,
-      }).addTo(map);
+      if (rings && rings.length > 0) {
+        const outerRing = rings[0];
+        const latlngs: L.LatLngExpression[] = outerRing.map(
+          (c: number[]) => [c[1], c[0]] as [number, number]
+        );
 
-      const activities = zone.allowed_activities?.length
-        ? zone.allowed_activities.map(a => `• ${a}`).join('<br>')
-        : 'No activities listed';
+        const polygon = L.polygon(latlngs, {
+          fillColor: color,
+          color: color,
+          weight: 2,
+          opacity: 0.9,
+          fillOpacity: 0.25,
+          dashArray: '4 4',
+        }).addTo(map);
 
-      const popupContent = `
-        <div style="min-width: 220px; font-family: Inter, sans-serif;">
-          <div style="background: ${color}; color: white; padding: 8px 12px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 14px;">
-            ${zone.name}
-          </div>
-          <div style="padding: 10px 12px;">
-            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">
-              ${ZONE_TYPE_LABELS[zone.zone_type] || zone.zone_type} · ${zone.area_km2.toLocaleString()} km²
+        const activities = zone.allowed_activities?.length
+          ? zone.allowed_activities.map((a) => `• ${a}`).join('<br>')
+          : 'No activities listed';
+
+        const popupContent = `
+          <div style="min-width: 220px; font-family: Inter, sans-serif;">
+            <div style="background: ${color}; color: white; padding: 8px 12px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 14px;">
+              ${zone.name}
             </div>
-            <div style="font-size: 12px; font-weight: 600; color: #0f172a; margin-bottom: 4px;">Allowed Activities:</div>
-            <div style="font-size: 11px; color: #475569; line-height: 1.6;">${activities}</div>
-            <div style="font-size: 11px; color: #64748b; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
-              ${zone.managing_authority}
+            <div style="padding: 10px 12px;">
+              <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">
+                ${ZONE_TYPE_LABELS[zone.zone_type] || zone.zone_type} · ${zone.area_km2.toLocaleString()} km²
+              </div>
+              <div style="font-size: 12px; font-weight: 600; color: #0f172a; margin-bottom: 4px;">Allowed Activities:</div>
+              <div style="font-size: 11px; color: #475569; line-height: 1.6;">${activities}</div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
+                ${zone.managing_authority}
+              </div>
             </div>
           </div>
-        </div>
-      `;
+        `;
 
-      marker.bindPopup(popupContent, { maxWidth: 300 });
+        polygon.bindPopup(popupContent, { maxWidth: 300 });
 
-      if (onZoneClick) {
-        marker.on('click', () => onZoneClick(zone));
+        if (onZoneClick) {
+          polygon.on('click', () => onZoneClick(zone));
+        }
+
+        layersRef.current.push(polygon);
+        fitBounds.push(polygon.getBounds());
+      } else {
+        const radius = Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3));
+        const marker = L.circleMarker([lat, lng], {
+          radius,
+          fillColor: color,
+          color: '#fff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.8,
+        }).addTo(map);
+
+        const activities = zone.allowed_activities?.length
+          ? zone.allowed_activities.map((a) => `• ${a}`).join('<br>')
+          : 'No activities listed';
+
+        const popupContent = `
+          <div style="min-width: 220px; font-family: Inter, sans-serif;">
+            <div style="background: ${color}; color: white; padding: 8px 12px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 14px;">
+              ${zone.name}
+            </div>
+            <div style="padding: 10px 12px;">
+              <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">
+                ${ZONE_TYPE_LABELS[zone.zone_type] || zone.zone_type} · ${zone.area_km2.toLocaleString()} km²
+              </div>
+              <div style="font-size: 12px; font-weight: 600; color: #0f172a; margin-bottom: 4px;">Allowed Activities:</div>
+              <div style="font-size: 11px; color: #475569; line-height: 1.6;">${activities}</div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
+                ${zone.managing_authority}
+              </div>
+            </div>
+          </div>
+        `;
+
+        marker.bindPopup(popupContent, { maxWidth: 300 });
+
+        if (onZoneClick) {
+          marker.on('click', () => onZoneClick(zone));
+        }
+
+        layersRef.current.push(marker);
+        fitBounds.push(L.latLngBounds([lat, lng], [lat, lng]));
       }
-
-      markersRef.current.push(marker);
     });
 
-    // Fit bounds to markers if any
-    if (markersRef.current.length > 0) {
-      const group = L.featureGroup(markersRef.current);
-      map.fitBounds(group.getBounds().pad(0.2), { maxZoom: 12 });
+    if (fitBounds.length > 0) {
+      const combined = fitBounds.reduce((acc, b) => acc.extend(b), fitBounds[0]);
+      map.fitBounds(combined.pad(0.2), { maxZoom: 12 });
     }
   }, [zones, onZoneClick]);
 

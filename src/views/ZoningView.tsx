@@ -81,7 +81,7 @@ export default function ZoningView() {
         restrictions: zone.restrictions,
         licensing_requirements: zone.licensing_requirements,
       },
-      geometry: {
+      geometry: (zone.boundary_geojson as { type: string; coordinates: number[] } | null) ?? {
         type: 'Point',
         coordinates: zone.coordinates ? [zone.coordinates.lng, zone.coordinates.lat] : null,
       },
@@ -157,7 +157,7 @@ export default function ZoningView() {
           <ZoneMap zones={zones} onZoneClick={(z) => setSelectedZone(z)} />
           <div className="mt-3 text-xs text-slate-500 flex items-center gap-2">
             <MapPin className="w-3.5 h-3.5" />
-            Click any zone marker to view details. Marker size reflects zone area. Color indicates zone type.
+            Click any zone boundary to view details. Boundaries sourced from KWS, KMA, KFS, NEMA, Kilifi County Fisheries & BMUs.
           </div>
         </div>
       </div>
