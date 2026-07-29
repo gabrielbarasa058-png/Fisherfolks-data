@@ -3,10 +3,11 @@ import { supabase } from '../lib/supabase';
 import type { MarineZone } from '../types';
 import { formatArea, formatDate, titleCase, getZoneColor } from '../lib/format';
 import ZoneMap from '../components/ZoneMap';
+import { getKilifiZonesAsMarineZones } from '../data/kilifiZones';
 import {
   Waves, MapPin, Shield, Calendar, Building2, CheckCircle2, XCircle,
   AlertCircle, Search, X, Layers, Map as MapIcon, Navigation,
-  Award, Download, Lock,
+  Award, Download, Lock, ToggleLeft, ToggleRight, Database,
 } from 'lucide-react';
 
 const ZONE_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -37,12 +38,39 @@ export default function ZoningView() {
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedZone, setSelectedZone] = useState<MarineZone | null>(null);
+  const [showBoundaries, setShowBoundaries] = useState(true);
+  const [dataSource, setDataSource] = useState<'database' | 'kilifi'>('database');
 
   useEffect(() => {
     async function fetchZones() {
-      const { data } = await supabase.from('marine_zones').select('*').order('area_km2', { ascending: false });
-      setZones(data || []);
-      setLoading(false);
+      try {
+        const { data, error } = await supabase
+          .from('marine_zones')
+          .select('*')
+          .order('area_km2', { ascending: false });
+
+        if (error) throw error;
+
+        // If database has zones with boundary_geojson, use them
+        const hasBoundaries = data?.some(z => z.boundary_geojson != null);
+
+        if (data && data.length > 0) {
+          setZones(data);
+          setDataSource(hasBoundaries ? 'database' : 'database');
+        } else {
+          // Fallback to bundled Kilifi zone data
+          const kilifiZones = getKilifiZonesAsMarineZones();
+          setZones(kilifiZones);
+          setDataSource('kilifi');
+        }
+      } catch {
+        // Fallback to bundled Kilifi zone data on any error
+        const kilifiZones = getKilifiZonesAsMarineZones();
+        setZones(kilifiZones);
+        setDataSource('kilifi');
+      } finally {
+        setLoading(false);
+      }
     }
     fetchZones();
   }, []);
@@ -66,8 +94,17 @@ export default function ZoningView() {
   });
 
   const totalArea = zones.reduce((sum, z) => sum + z.area_km2, 0);
+  const zonesWithBoundaries = zones.filter(z => z.boundary_geojson != null).length;
 
   const downloadBoundary = (zone: MarineZone) => {
+    // Use actual polygon boundary if available, otherwise fall back to centroid point
+    const geometry = zone.boundary_geojson
+      ? (zone.boundary_geojson as { geometry: { type: string; coordinates: unknown } }).geometry
+      : {
+          type: 'Point' as const,
+          coordinates: zone.coordinates ? [zone.coordinates.lng, zone.coordinates.lat] : null,
+        };
+
     const geojson = {
       type: 'Feature',
       properties: {
@@ -81,10 +118,7 @@ export default function ZoningView() {
         restrictions: zone.restrictions,
         licensing_requirements: zone.licensing_requirements,
       },
-      geometry: {
-        type: 'Point',
-        coordinates: zone.coordinates ? [zone.coordinates.lng, zone.coordinates.lat] : null,
-      },
+      geometry,
     };
     const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
     const url = URL.createObjectURL(blob);
@@ -139,7 +173,7 @@ export default function ZoningView() {
         <div className="flex flex-wrap gap-3">
           {Object.entries(ZONE_TYPE_LABELS).map(([key, label]) => (
             <div key={key} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: getZoneColor(key) }} />
+              <div className="w-4 h-4 rounded-sm opacity-60" style={{ backgroundColor: getZoneColor(key) }} />
               <span className="text-xs text-slate-600">{label}</span>
             </div>
           ))}
@@ -148,16 +182,49 @@ export default function ZoningView() {
 
       {/* Interactive Map */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
-          <MapIcon className="w-5 h-5 text-cyan-500" />
-          <h2 className="font-semibold text-slate-900">Interactive Zone Map</h2>
-          <span className="text-xs text-slate-400 ml-2">Switch layers (top-right): Satellite, Ocean (GEBCO/NOAA), Street</span>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <MapIcon className="w-5 h-5 text-cyan-500" />
+            <h2 className="font-semibold text-slate-900">Interactive Zone Map</h2>
+            <span className="text-xs text-slate-400 ml-2">Switch layers (top-right): Satellite, Ocean (GEBCO/NOAA), Street</span>
+          </div>
+          {/* Boundary / Point Toggle */}
+          <button
+            onClick={() => setShowBoundaries(!showBoundaries)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              showBoundaries
+                ? 'bg-cyan-50 text-cyan-700 border border-cyan-200'
+                : 'bg-slate-100 text-slate-600 border border-slate-200'
+            }`}
+            title={showBoundaries ? 'Switch to point markers' : 'Switch to boundary polygons'}
+          >
+            {showBoundaries ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+            {showBoundaries ? 'Boundaries' : 'Points'}
+          </button>
         </div>
         <div className="p-4">
-          <ZoneMap zones={zones} onZoneClick={(z) => setSelectedZone(z)} />
-          <div className="mt-3 text-xs text-slate-500 flex items-center gap-2">
-            <MapPin className="w-3.5 h-3.5" />
-            Click any zone marker to view details. Marker size reflects zone area. Color indicates zone type.
+          <ZoneMap
+            zones={zones}
+            onZoneClick={(z) => setSelectedZone(z)}
+            showBoundaries={showBoundaries}
+          />
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-3.5 h-3.5" />
+              <span>
+                {showBoundaries
+                  ? 'Click any zone polygon to view details. Colored polygons show official zone boundaries.'
+                  : 'Click any zone marker to view details. Marker size reflects zone area.'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5" />
+              <span className="text-slate-400">
+                {dataSource === 'kilifi'
+                  ? `${zones.length} Kilifi zones (bundled GeoJSON)`
+                  : `${zonesWithBoundaries}/${zones.length} with polygon boundaries`}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -168,7 +235,7 @@ export default function ZoningView() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by zone name, beach, or GPS coordinates (lat, lng)..."
+            placeholder="Search by zone name, designation, authority, or GPS coordinates..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm"
@@ -272,6 +339,9 @@ export default function ZoningView() {
                 <span className="ml-auto text-xs text-slate-400">
                   {zone.allowed_activities?.length || 0} activities
                 </span>
+                {zone.boundary_geojson && (
+                  <span className="text-xs text-cyan-500 font-medium ml-1">Boundary</span>
+                )}
               </div>
             </div>
           </button>
@@ -354,6 +424,29 @@ export default function ZoningView() {
                 )}
               </div>
 
+              {/* Boundary Info */}
+              {selectedZone.boundary_geojson && (
+                <div className="mb-5 bg-cyan-50 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapIcon className="w-4 h-4 text-cyan-600" />
+                    <h3 className="font-semibold text-slate-900 text-sm">Zone Boundary</h3>
+                  </div>
+                  <p className="text-xs text-slate-600 mb-3">
+                    This zone has a detailed polygon boundary with {
+                      typeof selectedZone.boundary_geojson === 'object' && selectedZone.boundary_geojson !== null
+                        ? (selectedZone.boundary_geojson as { properties?: { num_boundary_points?: number } }).properties?.num_boundary_points || 'multiple'
+                        : 'several'
+                    } vertices defining the marine fishing area.
+                  </p>
+                  <button
+                    onClick={() => downloadBoundary(selectedZone)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-50 rounded-lg text-xs font-medium text-cyan-700 border border-cyan-200 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Download GeoJSON Boundary
+                  </button>
+                </div>
+              )}
+
               {/* Licensing Requirements */}
               {selectedZone.licensing_requirements && selectedZone.licensing_requirements.length > 0 && (
                 <div className="mb-5 bg-blue-50 rounded-lg p-4">
@@ -373,7 +466,7 @@ export default function ZoningView() {
               {selectedZone.coordinates && (
                 <div className="mb-5 bg-slate-50 rounded-lg p-3 flex items-center gap-2 text-sm">
                   <Navigation className="w-4 h-4 text-slate-400" />
-                  <span className="text-slate-500">GPS:</span>
+                  <span className="text-slate-500">Centroid:</span>
                   <span className="font-mono font-medium text-slate-700">{selectedZone.coordinates.lat.toFixed(4)}°, {selectedZone.coordinates.lng.toFixed(4)}°</span>
                 </div>
               )}
@@ -417,14 +510,14 @@ export default function ZoningView() {
                     {titleCase(selectedZone.status)}
                   </span>
                 </div>
-                {/* Download Boundary */}
-                <button
-                  onClick={() => downloadBoundary(selectedZone)}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 transition-colors w-full"
-                >
-                  <Download className="w-4 h-4" />
-                  Download Boundary (GeoJSON)
-                </button>
+                {!selectedZone.boundary_geojson && (
+                  <button
+                    onClick={() => downloadBoundary(selectedZone)}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium text-slate-700 transition-colors w-full"
+                  >
+                    <Download className="w-4 h-4" /> Download Boundary (GeoJSON)
+                  </button>
+                )}
               </div>
             </div>
           </div>

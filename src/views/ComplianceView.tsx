@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
 import type { ComplianceIncident, MarineZone, Vessel, VesselTrack, GeofenceAlert, Inspection } from '../types';
 import { formatNumber, formatDate, titleCase, getColor, getZoneColor } from '../lib/format';
+import type { FeatureCollection as GeoJSONFeatureCollection } from 'geojson';
 import {
   AlertTriangle, Search, X, Calendar, DollarSign, Ship,
   ShieldAlert, CheckCircle2, Clock, Gavel, Activity,
@@ -456,13 +457,28 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
     L.control.layers({ Satellite: satellite, 'Ocean (GEBCO/NOAA)': ocean, Street: street }, undefined, { position: 'topright', collapsed: false }).addTo(map);
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
-    // Zone markers
+    // Zone polygons or markers
     zones.forEach(zone => {
-      if (!zone.coordinates) return;
-      L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
-        radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
-        fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.6, fillOpacity: 0.2,
-      }).addTo(map).bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
+      const hasBoundary = zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature';
+      if (hasBoundary) {
+        const geojsonFeature = zone.boundary_geojson as unknown as GeoJSONFeatureCollection['features'][number];
+        const layer = L.geoJSON(
+          { type: 'FeatureCollection', features: [geojsonFeature] },
+          {
+            style: () => ({
+              fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.7, fillOpacity: 0.2,
+            }),
+            onEachFeature: (_feature, lyr) => {
+              lyr.bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}<br>Area: ${zone.area_km2} km²`);
+            },
+          }
+        ).addTo(map);
+      } else if (zone.coordinates) {
+        L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
+          radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
+          fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.6, fillOpacity: 0.2,
+        }).addTo(map).bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
+      }
     });
 
     // Vessel tracks
@@ -557,9 +573,23 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
       if (a.zone_id) zoneAlertCounts[a.zone_id] = (zoneAlertCounts[a.zone_id] || 0) + 1;
     });
 
-    // Draw heat circles for each zone
+    // Draw heat circles for each zone — use centroid from polygon or coordinates
     zones.forEach(zone => {
-      if (!zone.coordinates) return;
+      let centroid: { lat: number; lng: number } | null = null;
+      if (zone.coordinates) {
+        centroid = zone.coordinates;
+      } else if (zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature') {
+        const geom = (zone.boundary_geojson as { geometry: { type: string; coordinates: number[][][] } }).geometry;
+        if (geom.type === 'Polygon') {
+          const ring = geom.coordinates[0];
+          centroid = {
+            lat: ring.reduce((s, p) => s + p[1], 0) / ring.length,
+            lng: ring.reduce((s, p) => s + p[0], 0) / ring.length,
+          };
+        }
+      }
+      if (!centroid) return;
+
       const incCount = zoneIncidentCounts[zone.id] || 0;
       const alertCount = zoneAlertCounts[zone.id] || 0;
       const total = incCount + alertCount;
@@ -569,7 +599,7 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
       const color = total >= 4 ? '#dc2626' : total >= 2 ? '#f59e0b' : '#fbbf24';
       const radius = 20 + total * 10;
 
-      L.circle([zone.coordinates.lat, zone.coordinates.lng], {
+      L.circle([centroid.lat, centroid.lng], {
         radius,
         fillColor: color, color: color, weight: 1, opacity: 0.4, fillOpacity: intensity * 0.5,
       }).addTo(map).bindPopup(`
@@ -586,8 +616,21 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
 
     // Also show zone center markers
     zones.forEach(zone => {
-      if (!zone.coordinates) return;
-      L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
+      let centroid: { lat: number; lng: number } | null = null;
+      if (zone.coordinates) {
+        centroid = zone.coordinates;
+      } else if (zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature') {
+        const geom = (zone.boundary_geojson as { geometry: { type: string; coordinates: number[][][] } }).geometry;
+        if (geom.type === 'Polygon') {
+          const ring = geom.coordinates[0];
+          centroid = {
+            lat: ring.reduce((s, p) => s + p[1], 0) / ring.length,
+            lng: ring.reduce((s, p) => s + p[0], 0) / ring.length,
+          };
+        }
+      }
+      if (!centroid) return;
+      L.circleMarker([centroid.lat, centroid.lng], {
         radius: 4, fillColor: '#1e293b', color: '#fff', weight: 1, opacity: 1, fillOpacity: 1,
       }).addTo(map).bindTooltip(zone.name, { permanent: false });
     });
