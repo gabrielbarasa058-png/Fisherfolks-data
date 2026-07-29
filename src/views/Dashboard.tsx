@@ -159,7 +159,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <span>Kilifi Old Ferry Fishing Hub · Kilifi County, Kenya</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-            Ocean Governance Dashboard
+            Marine Blue Economy Governance Dashboard
           </h1>
           <p className="text-slate-300 max-w-2xl text-base sm:text-lg leading-relaxed">
             Integrated monitoring of marine zoning, compliance enforcement, fisher registration,

@@ -183,10 +183,10 @@ function TitleSlide(_: SlideProps) {
           <Anchor className="w-10 h-10 text-white" />
         </div>
         <h1 className="text-5xl sm:text-6xl font-bold text-white mb-4 leading-tight">
-          Kilifi Marine Compliance
+          Marine Blue Economy Governance Dashboard
         </h1>
         <p className="text-2xl text-cyan-400 font-medium mb-3">
-          Ocean Governance Dashboard
+          Marine Blue Economy Governance Dashboard
         </p>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed mb-8">
           An integrated platform for marine zoning, compliance enforcement,
@@ -1103,7 +1103,7 @@ function ThankYouSlide(_: SlideProps) {
           Thank You
         </h1>
         <p className="text-xl text-cyan-400 font-medium mb-6">
-          Kilifi Marine Compliance Dashboard
+          Marine Blue Economy Governance Dashboard
         </p>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed mb-10">
           Protecting our ocean. Empowering our fishers. Securing our future.

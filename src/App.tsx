@@ -63,7 +63,7 @@ function App() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
               <Anchor className="w-4 h-4 text-white" />
             </div>
-            <span className="text-white font-semibold text-sm">Kilifi Marine</span>
+            <span className="text-white font-semibold text-sm">Marine Blue Economy</span>
           </div>
           <button
             onClick={() => setMobileOpen(true)}
@@ -107,7 +107,7 @@ function SidebarContent({
             <Anchor className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="text-white font-bold text-sm leading-tight">Kilifi Marine Compliance</div>
+            <div className="text-white font-bold text-sm leading-tight">Marine Blue Economy</div>
             <div className="text-slate-400 text-xs">Old Ferry Hub · Kenya</div>
           </div>
         </div>
@@ -153,7 +153,7 @@ function SidebarContent({
       {/* Footer */}
       <div className="p-4 border-t border-slate-800">
         <div className="text-xs text-slate-500 text-center">
-          Kilifi County Ocean Governance
+          Marine Blue Economy Governance
           <br />
           Prototype v2.0
         </div>
