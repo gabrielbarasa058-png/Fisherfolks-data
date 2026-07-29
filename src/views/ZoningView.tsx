@@ -339,9 +339,9 @@ export default function ZoningView() {
                 <span className="ml-auto text-xs text-slate-400">
                   {zone.allowed_activities?.length || 0} activities
                 </span>
-                {zone.boundary_geojson && (
+                {zone.boundary_geojson != null ? (
                   <span className="text-xs text-cyan-500 font-medium ml-1">Boundary</span>
-                )}
+                ) : null}
               </div>
             </div>
           </button>
@@ -425,7 +425,7 @@ export default function ZoningView() {
               </div>
 
               {/* Boundary Info */}
-              {selectedZone.boundary_geojson && (
+              {selectedZone.boundary_geojson != null ? (
                 <div className="mb-5 bg-cyan-50 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <MapIcon className="w-4 h-4 text-cyan-600" />
@@ -445,7 +445,7 @@ export default function ZoningView() {
                     <Download className="w-3.5 h-3.5" /> Download GeoJSON Boundary
                   </button>
                 </div>
-              )}
+              ) : null}
 
               {/* Licensing Requirements */}
               {selectedZone.licensing_requirements && selectedZone.licensing_requirements.length > 0 && (
