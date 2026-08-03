@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { MarineZone } from '../types';
+import type { MarineZone, LandingSite } from '../types';
 import { formatArea, formatDate, titleCase, getZoneColor } from '../lib/format';
 import ZoneMap from '../components/ZoneMap';
 import {
@@ -33,18 +33,23 @@ const ZONE_TYPE_LABELS: Record<string, string> = {
 
 export default function ZoningView() {
   const [zones, setZones] = useState<MarineZone[]>([]);
+  const [landingSites, setLandingSites] = useState<LandingSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedZone, setSelectedZone] = useState<MarineZone | null>(null);
 
   useEffect(() => {
-    async function fetchZones() {
-      const { data } = await supabase.from('marine_zones').select('*').order('area_km2', { ascending: false });
-      setZones(data || []);
+    async function fetchData() {
+      const [{ data: zoneData }, { data: siteData }] = await Promise.all([
+        supabase.from('marine_zones').select('*').order('area_km2', { ascending: false }),
+        supabase.from('landing_sites').select('*').order('name'),
+      ]);
+      setZones(zoneData || []);
+      setLandingSites(siteData || []);
       setLoading(false);
     }
-    fetchZones();
+    fetchData();
   }, []);
 
   if (loading) {
@@ -154,7 +159,7 @@ export default function ZoningView() {
           <span className="text-xs text-slate-400 ml-2">Switch layers (top-right): Satellite, Ocean (GEBCO/NOAA), Street</span>
         </div>
         <div className="p-4">
-          <ZoneMap zones={zones} onZoneClick={(z) => setSelectedZone(z)} />
+          <ZoneMap zones={zones} landingSites={landingSites} onZoneClick={(z) => setSelectedZone(z)} />
           <div className="mt-3 text-xs text-slate-500 flex items-center gap-2">
             <MapPin className="w-3.5 h-3.5" />
             Click any zone boundary to view details. Boundaries sourced from KWS, KMA, KFS, NEMA, Kilifi County Fisheries & BMUs.
