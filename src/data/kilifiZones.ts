@@ -10,8 +10,10 @@
  * Coordinate system: WGS84 (EPSG:4326)
  */
 
-import kilifiGeoJSON from './kilifi_marine_zones.geojson';
+import rawKilifiGeoJSON from './kilifi_marine_zones.geojson?raw';
 import type { MarineZone } from '../types';
+
+const kilifiGeoJSON = JSON.parse(rawKilifiGeoJSON) as KilifiZoneFeatureCollection;
 
 export interface KilifiZoneFeature {
   type: 'Feature';
