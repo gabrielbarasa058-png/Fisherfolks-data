@@ -38,6 +38,15 @@ const emptyLicenseForm = {
   conditions: '',
 };
 
+const emptyOwnerForm = {
+  full_name: '',
+  national_id: '',
+  phone: '',
+  address: '',
+  vessel_id: '',
+  ownership_percentage: '',
+};
+
 export default function FishersView() {
   const [fishers, setFishers] = useState<Fisher[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -51,10 +60,12 @@ export default function FishersView() {
   const [activeTab, setActiveTab] = useState<'fishers' | 'licenses' | 'owners'>('fishers');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLicenseModal, setShowLicenseModal] = useState(false);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState(emptyFisherForm);
   const [licenseFormData, setLicenseFormData] = useState(emptyLicenseForm);
+  const [ownerFormData, setOwnerFormData] = useState(emptyOwnerForm);
 
   useEffect(() => {
     async function fetchData() {
@@ -166,6 +177,45 @@ export default function FishersView() {
     setLicenses(prev => [data as FishingLicense, ...prev].sort((a, b) => b.issue_date.localeCompare(a.issue_date)));
     setShowLicenseModal(false);
     setLicenseFormData(emptyLicenseForm);
+  };
+
+  const handleAddOwner = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (!ownerFormData.full_name.trim()) {
+      setFormError('Owner name is required.');
+      return;
+    }
+
+    if (!ownerFormData.vessel_id) {
+      setFormError('Please select a vessel.');
+      return;
+    }
+
+    setSaving(true);
+
+    const payload = {
+      full_name: ownerFormData.full_name.trim(),
+      national_id: ownerFormData.national_id.trim() || null,
+      phone: ownerFormData.phone.trim() || null,
+      address: ownerFormData.address.trim() || null,
+      vessel_id: ownerFormData.vessel_id || null,
+      ownership_percentage: ownerFormData.ownership_percentage ? Number(ownerFormData.ownership_percentage) : null,
+    };
+
+    const { data, error } = await supabase.from('boat_owners').insert([payload]).select('*').single();
+
+    setSaving(false);
+
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    setBoatOwners(prev => [data as BoatOwner, ...prev].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')));
+    setShowOwnerModal(false);
+    setOwnerFormData(emptyOwnerForm);
   };
 
   if (loading) {
@@ -411,8 +461,23 @@ export default function FishersView() {
       )}
 
       {activeTab === 'owners' && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
-          <table className="w-full">
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setShowOwnerModal(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-cyan-700"
+            >
+              <Plus className="w-4 h-4" />
+              Add Owner
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
+            <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Owner Name</th>
@@ -438,7 +503,8 @@ export default function FishersView() {
                 );
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       )}
 
@@ -613,6 +679,116 @@ export default function FishersView() {
                   className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {saving ? 'Saving...' : 'Save License'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showOwnerModal && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowOwnerModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Add Boat Owner</h2>
+              <button onClick={() => setShowOwnerModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddOwner} className="p-6 space-y-4">
+              {formError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-medium text-slate-700">Owner Name</span>
+                  <input
+                    required
+                    value={ownerFormData.full_name}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, full_name: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">National ID</span>
+                  <input
+                    value={ownerFormData.national_id}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, national_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Phone</span>
+                  <input
+                    value={ownerFormData.phone}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-medium text-slate-700">Address</span>
+                  <textarea
+                    rows={3}
+                    value={ownerFormData.address}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, address: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Vessel</span>
+                  <select
+                    value={ownerFormData.vessel_id}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, vessel_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select vessel</option>
+                    {vessels.map(vessel => (
+                      <option key={vessel.id} value={vessel.id}>{vessel.vessel_name} ({vessel.registration_id})</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Ownership %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={ownerFormData.ownership_percentage}
+                    onChange={(e) => setOwnerFormData(prev => ({ ...prev, ownership_percentage: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowOwnerModal(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? 'Saving...' : 'Save Owner'}
                 </button>
               </div>
             </form>
