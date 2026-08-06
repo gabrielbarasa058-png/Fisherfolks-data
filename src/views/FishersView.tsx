@@ -1,11 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Fisher, Vessel, LandingSite, FishingLicense, BoatOwner, CrewMember } from '../types';
 import { formatDate, titleCase } from '../lib/format';
 import {
   Users, Search, Phone, MapPin, Shield, Anchor, X, Calendar,
-  User, Briefcase, AlertCircle, Fish, Award, XCircle, CheckCircle2,
+  User, Briefcase, AlertCircle, Fish, Award, XCircle, CheckCircle2, Plus,
 } from 'lucide-react';
+
+const emptyFisherForm = {
+  full_name: '',
+  national_id: '',
+  phone: '',
+  gender: '',
+  date_of_birth: '',
+  bmu: '',
+  bmu_role: '',
+  fishing_experience_years: '',
+  vessel_id: '',
+  landing_site_id: '',
+  emergency_contact_name: '',
+  emergency_contact_phone: '',
+  emergency_contact_relation: '',
+  active: true,
+};
 
 export default function FishersView() {
   const [fishers, setFishers] = useState<Fisher[]>([]);
@@ -18,6 +35,10 @@ export default function FishersView() {
   const [search, setSearch] = useState('');
   const [selectedFisher, setSelectedFisher] = useState<Fisher | null>(null);
   const [activeTab, setActiveTab] = useState<'fishers' | 'licenses' | 'owners'>('fishers');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formData, setFormData] = useState(emptyFisherForm);
 
   useEffect(() => {
     async function fetchData() {
@@ -39,6 +60,48 @@ export default function FishersView() {
     }
     fetchData();
   }, []);
+
+  const handleAddFisher = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (!formData.full_name.trim()) {
+      setFormError('Full name is required.');
+      return;
+    }
+
+    setSaving(true);
+
+    const payload = {
+      full_name: formData.full_name.trim(),
+      national_id: formData.national_id.trim() || null,
+      phone: formData.phone.trim() || null,
+      gender: formData.gender || null,
+      date_of_birth: formData.date_of_birth || null,
+      bmu: formData.bmu.trim() || null,
+      bmu_role: formData.bmu_role.trim() || null,
+      fishing_experience_years: formData.fishing_experience_years ? Number(formData.fishing_experience_years) : null,
+      vessel_id: formData.vessel_id || null,
+      landing_site_id: formData.landing_site_id || null,
+      emergency_contact_name: formData.emergency_contact_name.trim() || null,
+      emergency_contact_phone: formData.emergency_contact_phone.trim() || null,
+      emergency_contact_relation: formData.emergency_contact_relation.trim() || null,
+      active: formData.active,
+    };
+
+    const { data, error } = await supabase.from('fishers').insert([payload]).select('*').single();
+
+    setSaving(false);
+
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    setFishers(prev => [data as Fisher, ...prev].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    setShowAddModal(false);
+    setFormData(emptyFisherForm);
+  };
 
   if (loading) {
     return (
@@ -131,16 +194,28 @@ export default function FishersView() {
 
       {activeTab === 'fishers' && (
         <>
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by name, BMU, or national ID..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 outline-none text-sm"
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by name, BMU, or national ID..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10 outline-none text-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setShowAddModal(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-cyan-700"
+            >
+              <Plus className="w-4 h-4" />
+              Add Fisher
+            </button>
           </div>
 
           {/* Fisher Grid */}
@@ -283,6 +358,198 @@ export default function FishersView() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Add New Fisher</h2>
+              <button onClick={() => setShowAddModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddFisher} className="p-6 space-y-4">
+              {formError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Full Name</span>
+                  <input
+                    required
+                    value={formData.full_name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, full_name: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">National ID</span>
+                  <input
+                    value={formData.national_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, national_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Phone</span>
+                  <input
+                    value={formData.phone}
+                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Gender</span>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select gender</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Date of Birth</span>
+                  <input
+                    type="date"
+                    value={formData.date_of_birth}
+                    onChange={(e) => setFormData(prev => ({ ...prev, date_of_birth: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Years of Experience</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.fishing_experience_years}
+                    onChange={(e) => setFormData(prev => ({ ...prev, fishing_experience_years: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">BMU</span>
+                  <input
+                    value={formData.bmu}
+                    onChange={(e) => setFormData(prev => ({ ...prev, bmu: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">BMU Role</span>
+                  <input
+                    value={formData.bmu_role}
+                    onChange={(e) => setFormData(prev => ({ ...prev, bmu_role: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Landing Site</span>
+                  <select
+                    value={formData.landing_site_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, landing_site_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select landing site</option>
+                    {landingSites.map(site => (
+                      <option key={site.id} value={site.id}>{site.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Vessel</span>
+                  <select
+                    value={formData.vessel_id}
+                    onChange={(e) => setFormData(prev => ({ ...prev, vessel_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select vessel</option>
+                    {vessels.map(vessel => (
+                      <option key={vessel.id} value={vessel.id}>{vessel.vessel_name} ({vessel.registration_id})</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Emergency Contact</span>
+                  <input
+                    value={formData.emergency_contact_name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, emergency_contact_name: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Emergency Phone</span>
+                  <input
+                    value={formData.emergency_contact_phone}
+                    onChange={(e) => setFormData(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-medium text-slate-700">Emergency Contact Relation</span>
+                  <input
+                    value={formData.emergency_contact_relation}
+                    onChange={(e) => setFormData(prev => ({ ...prev, emergency_contact_relation: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={formData.active}
+                  onChange={(e) => setFormData(prev => ({ ...prev, active: e.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
+                />
+                Active fisher
+              </label>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? 'Saving...' : 'Save Fisher'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
