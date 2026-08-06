@@ -40,6 +40,47 @@ function StatusIcon({ status }: { status: string }) {
 
 type Tab = 'vessel_tracking' | 'geofence' | 'incidents' | 'inspections' | 'heatmap';
 
+function isValidCoordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function getZoneCentroid(zone: MarineZone): { lat: number; lng: number } | null {
+  if (zone.coordinates && isValidCoordinate(zone.coordinates.lat) && isValidCoordinate(zone.coordinates.lng)) {
+    return { lat: zone.coordinates.lat, lng: zone.coordinates.lng };
+  }
+
+  if (!zone.boundary_geojson || typeof zone.boundary_geojson !== 'object') {
+    return null;
+  }
+
+  const boundary = zone.boundary_geojson as {
+    type?: string;
+    geometry?: {
+      type?: string;
+      coordinates?: number[][][] | number[][][][];
+    };
+  };
+
+  const geometry = boundary.geometry;
+  if (!geometry?.coordinates) return null;
+
+  const firstRing = geometry.type === 'Polygon'
+    ? (geometry.coordinates as number[][][])[0]
+    : geometry.type === 'MultiPolygon'
+      ? (geometry.coordinates as number[][][][])[0]?.[0]
+      : null;
+
+  if (!firstRing || firstRing.length === 0) return null;
+
+  const validPoints = firstRing.filter((point): point is [number, number] => Array.isArray(point) && isValidCoordinate(point[1]) && isValidCoordinate(point[0]));
+  if (validPoints.length === 0) return null;
+
+  const lat = validPoints.reduce((sum, point) => sum + point[1], 0) / validPoints.length;
+  const lng = validPoints.reduce((sum, point) => sum + point[0], 0) / validPoints.length;
+
+  return { lat, lng };
+}
+
 export default function ComplianceView() {
   const [incidents, setIncidents] = useState<ComplianceIncident[]>([]);
   const [zones, setZones] = useState<MarineZone[]>([]);
@@ -479,8 +520,11 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
             lyr.bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}<br>Area: ${zone.area_km2} km²`);
           },
         }).addTo(map);
-      } else if (zone.coordinates) {
-        L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
+      } else {
+        const centroid = getZoneCentroid(zone);
+        if (!centroid) return;
+
+        L.circleMarker([centroid.lat, centroid.lng], {
           radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
           fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.6, fillOpacity: 0.2,
         }).addTo(map).bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}`);
@@ -490,7 +534,11 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
     // Vessel tracks
     const vesselsWithTracks = vessels.filter(v => tracks.some(t => t.vessel_id === v.id));
     vesselsWithTracks.forEach(vessel => {
-      const vesselTracks = tracks.filter(t => t.vessel_id === vessel.id).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const vesselTracks = tracks
+        .filter(t => t.vessel_id === vessel.id)
+        .filter(t => isValidCoordinate(t.latitude) && isValidCoordinate(t.longitude))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
       if (vesselTracks.length === 0) return;
 
       const latest = vesselTracks[vesselTracks.length - 1];
@@ -524,11 +572,16 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
     });
 
     // Alert markers
-    alerts.filter(a => !a.acknowledged && a.latitude && a.longitude).forEach(alert => {
-      L.circleMarker([alert.latitude!, alert.longitude!], {
-        radius: 12, fillColor: getColor(alert.severity), color: '#fff', weight: 3, opacity: 1, fillOpacity: 0.4,
-      }).addTo(map).bindPopup(`<b>ALERT: ${alert.vessel_name || 'Unknown'}</b><br>${alert.alert_type}<br>${alert.zone_name || ''}`);
-    });
+    alerts
+      .filter(a => !a.acknowledged && isValidCoordinate(a.latitude) && isValidCoordinate(a.longitude))
+      .forEach(alert => {
+        const latitude = alert.latitude as number;
+        const longitude = alert.longitude as number;
+
+        L.circleMarker([latitude, longitude], {
+          radius: 12, fillColor: getColor(alert.severity), color: '#fff', weight: 3, opacity: 1, fillOpacity: 0.4,
+        }).addTo(map).bindPopup(`<b>ALERT: ${alert.vessel_name || 'Unknown'}</b><br>${alert.alert_type}<br>${alert.zone_name || ''}`);
+      });
 
     return () => { map.remove(); mapRef.current = null; };
   }, [vessels, tracks, zones, alerts]);
@@ -581,19 +634,7 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
 
     // Draw heat circles for each zone — use centroid from polygon or coordinates
     zones.forEach(zone => {
-      let centroid: { lat: number; lng: number } | null = null;
-      if (zone.coordinates) {
-        centroid = zone.coordinates;
-      } else if (zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature') {
-        const geom = (zone.boundary_geojson as { geometry: { type: string; coordinates: number[][][] } }).geometry;
-        if (geom.type === 'Polygon') {
-          const ring = geom.coordinates[0];
-          centroid = {
-            lat: ring.reduce((s, p) => s + p[1], 0) / ring.length,
-            lng: ring.reduce((s, p) => s + p[0], 0) / ring.length,
-          };
-        }
-      }
+      const centroid = getZoneCentroid(zone);
       if (!centroid) return;
 
       const incCount = zoneIncidentCounts[zone.id] || 0;
@@ -622,19 +663,7 @@ function HeatMap({ incidents, zones, alerts }: { incidents: ComplianceIncident[]
 
     // Also show zone center markers
     zones.forEach(zone => {
-      let centroid: { lat: number; lng: number } | null = null;
-      if (zone.coordinates) {
-        centroid = zone.coordinates;
-      } else if (zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature') {
-        const geom = (zone.boundary_geojson as { geometry: { type: string; coordinates: number[][][] } }).geometry;
-        if (geom.type === 'Polygon') {
-          const ring = geom.coordinates[0];
-          centroid = {
-            lat: ring.reduce((s, p) => s + p[1], 0) / ring.length,
-            lng: ring.reduce((s, p) => s + p[0], 0) / ring.length,
-          };
-        }
-      }
+      const centroid = getZoneCentroid(zone);
       if (!centroid) return;
       L.circleMarker([centroid.lat, centroid.lng], {
         radius: 4, fillColor: '#1e293b', color: '#fff', weight: 1, opacity: 1, fillOpacity: 1,
