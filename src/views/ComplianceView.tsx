@@ -462,17 +462,23 @@ function VesselTrackingMap({ vessels, tracks, zones, alerts }: { vessels: Vessel
       const hasBoundary = zone.boundary_geojson && (zone.boundary_geojson as { type?: string }).type === 'Feature';
       if (hasBoundary) {
         const geojsonFeature = zone.boundary_geojson as unknown as GeoJSONFeatureCollection['features'][number];
-        const layer = L.geoJSON(
-          { type: 'FeatureCollection', features: [geojsonFeature] },
-          {
-            style: () => ({
-              fillColor: getZoneColor(zone.zone_type), color: '#fff', weight: 2, opacity: 0.7, fillOpacity: 0.2,
-            }),
-            onEachFeature: (_feature, lyr) => {
-              lyr.bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}<br>Area: ${zone.area_km2} km²`);
-            },
-          }
-        ).addTo(map);
+        const featureCollection: GeoJSONFeatureCollection = {
+          type: 'FeatureCollection',
+          features: [geojsonFeature],
+        };
+
+        L.geoJSON(featureCollection, {
+          style: () => ({
+            fillColor: getZoneColor(zone.zone_type),
+            color: '#fff',
+            weight: 2,
+            opacity: 0.7,
+            fillOpacity: 0.2,
+          }),
+          onEachFeature: (_feature, lyr) => {
+            lyr.bindPopup(`<b>${zone.name}</b><br>${zone.zone_type}<br>Status: ${zone.zone_status || 'open'}<br>Area: ${zone.area_km2} km²`);
+          },
+        }).addTo(map);
       } else if (zone.coordinates) {
         L.circleMarker([zone.coordinates.lat, zone.coordinates.lng], {
           radius: Math.max(8, Math.min(20, Math.sqrt(zone.area_km2) / 3)),
