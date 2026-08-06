@@ -24,6 +24,20 @@ const emptyFisherForm = {
   active: true,
 };
 
+const emptyLicenseForm = {
+  license_number: '',
+  license_type: '',
+  fisher_id: '',
+  vessel_id: '',
+  zone_id: '',
+  issue_date: '',
+  expiry_date: '',
+  status: 'active',
+  fee_paid: '',
+  issued_by: '',
+  conditions: '',
+};
+
 export default function FishersView() {
   const [fishers, setFishers] = useState<Fisher[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -36,9 +50,11 @@ export default function FishersView() {
   const [selectedFisher, setSelectedFisher] = useState<Fisher | null>(null);
   const [activeTab, setActiveTab] = useState<'fishers' | 'licenses' | 'owners'>('fishers');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showLicenseModal, setShowLicenseModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState(emptyFisherForm);
+  const [licenseFormData, setLicenseFormData] = useState(emptyLicenseForm);
 
   useEffect(() => {
     async function fetchData() {
@@ -101,6 +117,55 @@ export default function FishersView() {
     setFishers(prev => [data as Fisher, ...prev].sort((a, b) => a.full_name.localeCompare(b.full_name)));
     setShowAddModal(false);
     setFormData(emptyFisherForm);
+  };
+
+  const handleAddLicense = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError(null);
+
+    if (!licenseFormData.license_number.trim()) {
+      setFormError('License number is required.');
+      return;
+    }
+
+    if (!licenseFormData.fisher_id) {
+      setFormError('Please select a fisher.');
+      return;
+    }
+
+    if (!licenseFormData.issue_date || !licenseFormData.expiry_date) {
+      setFormError('Issue date and expiry date are required.');
+      return;
+    }
+
+    setSaving(true);
+
+    const payload = {
+      license_number: licenseFormData.license_number.trim(),
+      license_type: licenseFormData.license_type || 'commercial',
+      fisher_id: licenseFormData.fisher_id || null,
+      vessel_id: licenseFormData.vessel_id || null,
+      zone_id: licenseFormData.zone_id || null,
+      issue_date: licenseFormData.issue_date,
+      expiry_date: licenseFormData.expiry_date,
+      status: licenseFormData.status,
+      fee_paid: licenseFormData.fee_paid ? Number(licenseFormData.fee_paid) : null,
+      issued_by: licenseFormData.issued_by.trim() || null,
+      conditions: licenseFormData.conditions.trim() || null,
+    };
+
+    const { data, error } = await supabase.from('fishing_licenses').insert([payload]).select('*').single();
+
+    setSaving(false);
+
+    if (error) {
+      setFormError(error.message);
+      return;
+    }
+
+    setLicenses(prev => [data as FishingLicense, ...prev].sort((a, b) => b.issue_date.localeCompare(a.issue_date)));
+    setShowLicenseModal(false);
+    setLicenseFormData(emptyLicenseForm);
   };
 
   if (loading) {
@@ -277,55 +342,71 @@ export default function FishersView() {
       )}
 
       {activeTab === 'licenses' && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">License #</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Type</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Fisher/Vessel</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Issue Date</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Expiry</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Fee (KES)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {licenses.map((lic) => {
-                const fisher = fishers.find(f => f.id === lic.fisher_id);
-                const vessel = vessels.find(v => v.id === lic.vessel_id);
-                return (
-                  <tr key={lic.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{lic.license_number}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{titleCase(lic.license_type)}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">
-                      {fisher?.full_name || vessel?.vessel_name || '—'}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{formatDate(lic.issue_date)}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{formatDate(lic.expiry_date)}</td>
-                    <td className="px-5 py-3">
-                      <span
-                        className="text-xs font-medium px-2.5 py-1 rounded-full"
-                        style={{
-                          backgroundColor:
-                            lic.status === 'active' ? '#dcfce7' :
-                            lic.status === 'expired' ? '#fef3c7' :
-                            '#fee2e2',
-                          color:
-                            lic.status === 'active' ? '#16a34a' :
-                            lic.status === 'expired' ? '#d97706' :
-                            '#dc2626',
-                        }}
-                      >
-                        {titleCase(lic.status)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{lic.fee_paid?.toLocaleString() || '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setShowLicenseModal(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-cyan-700"
+            >
+              <Plus className="w-4 h-4" />
+              Add License
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">License #</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Type</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Fisher/Vessel</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Issue Date</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Expiry</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Status</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase">Fee (KES)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {licenses.map((lic) => {
+                  const fisher = fishers.find(f => f.id === lic.fisher_id);
+                  const vessel = vessels.find(v => v.id === lic.vessel_id);
+                  return (
+                    <tr key={lic.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 text-sm font-medium text-slate-900">{lic.license_number}</td>
+                      <td className="px-5 py-3 text-sm text-slate-600">{titleCase(lic.license_type)}</td>
+                      <td className="px-5 py-3 text-sm text-slate-600">
+                        {fisher?.full_name || vessel?.vessel_name || '—'}
+                      </td>
+                      <td className="px-5 py-3 text-sm text-slate-600">{formatDate(lic.issue_date)}</td>
+                      <td className="px-5 py-3 text-sm text-slate-600">{formatDate(lic.expiry_date)}</td>
+                      <td className="px-5 py-3">
+                        <span
+                          className="text-xs font-medium px-2.5 py-1 rounded-full"
+                          style={{
+                            backgroundColor:
+                              lic.status === 'active' ? '#dcfce7' :
+                              lic.status === 'expired' ? '#fef3c7' :
+                              '#fee2e2',
+                            color:
+                              lic.status === 'active' ? '#16a34a' :
+                              lic.status === 'expired' ? '#d97706' :
+                              '#dc2626',
+                          }}
+                        >
+                          {titleCase(lic.status)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-slate-600">{lic.fee_paid?.toLocaleString() || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -358,6 +439,184 @@ export default function FishersView() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showLicenseModal && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowLicenseModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Add Fishing License</h2>
+              <button onClick={() => setShowLicenseModal(false)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddLicense} className="p-6 space-y-4">
+              {formError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">License Number</span>
+                  <input
+                    required
+                    value={licenseFormData.license_number}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, license_number: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">License Type</span>
+                  <select
+                    value={licenseFormData.license_type}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, license_type: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select type</option>
+                    <option value="commercial">Commercial</option>
+                    <option value="artisanal">Artisanal</option>
+                    <option value="recreational">Recreational</option>
+                    <option value="special">Special</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Fisher</span>
+                  <select
+                    value={licenseFormData.fisher_id}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, fisher_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select fisher</option>
+                    {fishers.map(fisher => (
+                      <option key={fisher.id} value={fisher.id}>{fisher.full_name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Vessel</span>
+                  <select
+                    value={licenseFormData.vessel_id}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, vessel_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select vessel</option>
+                    {vessels.map(vessel => (
+                      <option key={vessel.id} value={vessel.id}>{vessel.vessel_name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Zone</span>
+                  <select
+                    value={licenseFormData.zone_id}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, zone_id: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="">Select zone</option>
+                    <option value="marine-zone-1">Marine Zone 1</option>
+                    <option value="marine-zone-2">Marine Zone 2</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Status</span>
+                  <select
+                    value={licenseFormData.status}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, status: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  >
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="revoked">Revoked</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Issue Date</span>
+                  <input
+                    type="date"
+                    required
+                    value={licenseFormData.issue_date}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, issue_date: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Expiry Date</span>
+                  <input
+                    type="date"
+                    required
+                    value={licenseFormData.expiry_date}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, expiry_date: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Fee Paid (KES)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={licenseFormData.fee_paid}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, fee_paid: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">Issued By</span>
+                  <input
+                    value={licenseFormData.issued_by}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, issued_by: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-medium text-slate-700">Conditions</span>
+                  <textarea
+                    rows={3}
+                    value={licenseFormData.conditions}
+                    onChange={(e) => setLicenseFormData(prev => ({ ...prev, conditions: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/10"
+                  />
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLicenseModal(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? 'Saving...' : 'Save License'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
